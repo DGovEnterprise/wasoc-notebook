@@ -1,0 +1,4 @@
+.amlignore*
+.ipynb_aml*
+__pycache__*
+*.amltmp
