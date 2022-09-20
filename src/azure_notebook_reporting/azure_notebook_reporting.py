@@ -1,11 +1,15 @@
-import os, json, pandas
+import json, pandas
 from pathlib import Path
 from cloudpathlib import AzureBlobClient
 from azure.storage.blob import BlobServiceClient
 from datetime import datetime, timedelta
 from subprocess import check_output
+from cacheout import Cache
 from concurrent.futures import ThreadPoolExecutor
 
+cache = Cache(maxsize=25600, ttl=300)
+
+@cache.memoize()
 def azcli(cmd: list):
     "Run a general azure cli cmd"
     cmd = ["az"] + cmd + ["--only-show-errors", "-o", "json"]
@@ -69,9 +73,9 @@ class KQL:
     ):
         # Use managed service identity to login
         try:
-            KQL.azcli(["login", "--identity"])
-            KQL.azcli(["extension", "add", "-n", "log-analytics", "-y"])
-            KQL.azcli(["extension", "add", "-n", "resource-graph", "-y"])
+            azcli(["login", "--identity"])
+            azcli(["extension", "add", "-n", "log-analytics", "-y"])
+            azcli(["extension", "add", "-n", "resource-graph", "-y"])
             # run(["azcopy", "login", "--identity"])
         except Exception as e:
             # bail as we aren't able to login
@@ -94,7 +98,7 @@ class KQL:
 
     def list_workspaces(self):
         "Get sentinel workspaces as a list of named tuples"
-        workspaces = KQL.azcli(
+        workspaces = azcli(
             [
                 "graph",
                 "query",
@@ -168,7 +172,7 @@ class KQL:
                 cmd += ["--query", outputfilter]
             cmds.append(cmd)
         with ThreadPoolExecutor() as executor:
-            for result in executor.map(KQL.azcli, cmds):
+            for result in executor.map(azcli, cmds):
                 if result:
                     results += result
         return results

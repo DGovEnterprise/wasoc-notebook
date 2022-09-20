@@ -1427,6 +1427,17 @@ python-versions = "*"
 cffi = ">=1.0.0"
 
 [[package]]
+name = "cacheout"
+version = "0.14.1"
+description = "A caching library for Python"
+category = "main"
+optional = false
+python-versions = ">=3.7"
+
+[package.extras]
+dev = ["Sphinx", "black", "build", "coverage", "docformatter", "flake8", "flake8-black", "flake8-bugbear", "flake8-isort", "invoke", "isort", "mypy", "pylint", "pytest", "pytest-asyncio", "pytest-cov", "sphinx-autodoc-typehints", "sphinx-rtd-theme", "tox", "twine", "wheel"]
+
+[[package]]
 name = "certifi"
 version = "2022.9.14"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -2422,7 +2433,7 @@ test = ["pytest"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "07a29a8e98222195119eab34f3e33ee6da084a9a8285cc6539fa45e530025875"
+content-hash = "f54df9188c3d8ed2c0c1ba588b4a2b70d6acb08191c502e589ee4e0fbb145a05"
 
 [metadata.files]
 adal = [
@@ -2936,6 +2947,10 @@ brotlicffi = [
     {file = "brotlicffi-1.0.9.2-pp37-pypy37_pp73-manylinux2010_x86_64.whl", hash = "sha256:9030cd5099252d16bfa4e22659c84a89c102e94f8e81d30764788b72e2d7cfb7"},
     {file = "brotlicffi-1.0.9.2-pp37-pypy37_pp73-win32.whl", hash = "sha256:7e72978f4090a161885b114f87b784f538dcb77dafc6602592c1cf39ae8d243d"},
     {file = "brotlicffi-1.0.9.2.tar.gz", hash = "sha256:0c248a68129d8fc6a217767406c731e498c3e19a7be05ea0a90c3c86637b7d96"},
+]
+cacheout = [
+    {file = "cacheout-0.14.1-py3-none-any.whl", hash = "sha256:060bf1c4af3d3903aa634814b547674ef16ec690b7f3576b373420bc29e5e4cb"},
+    {file = "cacheout-0.14.1.tar.gz", hash = "sha256:492b04e5c622f764085baf174f36b38ab287f154a6fa84c3ac29ee890c30662b"},
 ]
 certifi = [
     {file = "certifi-2022.9.14-py3-none-any.whl", hash = "sha256:e232343de1ab72c2aa521b625c80f699e356830fd0e2c620b465b304b17b0516"},

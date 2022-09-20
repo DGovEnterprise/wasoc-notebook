@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "azure_notebook_reporting"
-version = "0.1.0"
+version = "0.1.1"
 description = "A package to easily pull in azure cli and generate reports using seaborn and pandas."
 authors = ["Adon Metcalfe"]
 license = "Apache License 2.0"
@@ -16,6 +16,7 @@ cloudpathlib = {extras = ["azure"], version = "^0.10.0"}
 pytest-cov = "^3.0.0"
 azure-cli = "^2.40.0"
 setuptools = "^65.3.0"
+cacheout = "^0.14.1"
 
 [tool.poetry.dev-dependencies]
 
