@@ -1,5 +1,0 @@
-msticpy[sentinel]
-plotly
-kaleido
-tabulate
-nbconvert
