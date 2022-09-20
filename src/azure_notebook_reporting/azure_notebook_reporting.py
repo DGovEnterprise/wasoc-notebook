@@ -1,7 +1,47 @@
 import os, json, pandas
 from pathlib import Path
-from subprocess import run, check_output
+from cloudpathlib import AzureBlobClient
+from azure.storage.blob import BlobServiceClient
+from datetime import datetime, timedelta
+from subprocess import check_output
 from concurrent.futures import ThreadPoolExecutor
+
+def azcli(cmd: list):
+    "Run a general azure cli cmd"
+    cmd = ["az"] + cmd + ["--only-show-errors", "-o", "json"]
+    result = check_output(cmd)
+    if not result:
+        return None
+    return json.loads(result)
+
+
+def BlobPath(url, subscription):
+    "Mounts a blob url using azure cli"
+    expiry = str(datetime.today().date() + timedelta(days=7))
+    account, container = url.split("/")[2:]
+    account = account.split(".")[0]
+    sas = azcli(
+        [
+            "storage",
+            "container",
+            "generate-sas",
+            "--account-name",
+            account,
+            "-n",
+            container,
+            "--subscription",
+            subscription,
+            "--permissions",
+            "racwdlt",
+            "--expiry",
+            expiry
+        ]
+    )
+    print(sas)
+    blobclient = AzureBlobClient(blob_service_client = BlobServiceClient(account_url=url.replace(f"/{container}", ""), credential=sas))
+    path = blobclient.CloudPath(f"az://{container}")
+    return path
+
 
 
 class KQL:
@@ -24,15 +64,9 @@ class KQL:
     | where count_ > 0
     """
 
-    def azcli(cmd: list):
-        "Run a general azure cli cmd"
-        cmd = ["az"] + cmd + ["--only-show-errors", "-o", "json"]
-        result = check_output(cmd)
-        if not result:
-            return None
-        return json.loads(result)
-
-    def __init__(self, workspaces=False, commondata=Path.home() / "cloudfiles/code/commondata"):
+    def __init__(
+        self, workspaces=False, commondata=Path.home() / "cloudfiles/code/commondata"
+    ):
         # Use managed service identity to login
         try:
             KQL.azcli(["login", "--identity"])

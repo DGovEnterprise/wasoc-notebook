@@ -11,10 +11,11 @@ python = "^3.10"
 pandas = "^1.5.0"
 esparto = "^4.1.0"
 weasyprint = "^56.1"
-azure-cli = "^2.40.0"
 azure-identity = "^1.11.0"
 cloudpathlib = {extras = ["azure"], version = "^0.10.0"}
 pytest-cov = "^3.0.0"
+azure-cli = "^2.40.0"
+setuptools = "^65.3.0"
 
 [tool.poetry.dev-dependencies]
 
