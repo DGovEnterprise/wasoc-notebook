@@ -1,0 +1,3 @@
+Usage
+| project TimeGenerated, Table = strcat(Solution, ": ", DataType), Quantity, IsBillable
+| summarize IngestionVolume=sum(Quantity), Billable=any(IsBillable) by Table, TimeGenerated
