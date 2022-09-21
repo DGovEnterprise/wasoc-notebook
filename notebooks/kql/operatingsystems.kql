@@ -1,4 +1,15 @@
+let asrdevices=
+    DeviceEvents
+    | where TimeGenerated > ago (30d)
+    | where ActionType startswith "Asr"
+    | distinct DeviceName;
+//Find all devices and exclude those that have previously triggered a rule
 DeviceInfo
 | where isnotempty(OSPlatform)
-| summarize dcount(DeviceId) by OSPlatform
-| order by dcount_DeviceId
+| distinct DeviceName, OSPlatform
+| project
+    DeviceName,
+    OSPlatform,
+    ASREvents = toint(DeviceName in (asrdevices))
+| summarize devices = dcount(DeviceName), ASREnabled = sum(ASREvents) by OSPlatform
+| order by devices
