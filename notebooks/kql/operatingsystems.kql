@@ -1,0 +1,4 @@
+DeviceInfo
+| where isnotempty(OSPlatform)
+| summarize dcount(DeviceId) by OSPlatform
+| order by dcount_DeviceId
