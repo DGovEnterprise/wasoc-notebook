@@ -1,7 +1,7 @@
 SecurityIncident
 | summarize arg_min(TimeGenerated, *) by IncidentNumber
 | extend Tactics = tostring(AdditionalData.tactics)
-| extend Tactics = case(Tactics == "[]", pack_array("Not Defined"), Tactics)
+| extend Tactics = case(Tactics == "[]", pack_array("Unknown"), Tactics)
 | mv-expand todynamic(Tactics)
 | summarize incidents = dcount(IncidentNumber) by Title, tostring(Tactics), Severity, startofday(TimeGenerated)
 | sort by incidents
