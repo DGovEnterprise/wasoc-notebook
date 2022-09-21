@@ -31,8 +31,8 @@ jobs:
           AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
           AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
           AZURE_STORAGE_CONTAINER: ${{ secrets.AZURE_STORAGE_CONTAINER }}
-          KQL_PATH: ${{ secrets.KQL_PATH }}
+          KQL_PATH: notebooks/kql
         with:
           inlineScript: |
             az config set extension.use_dynamic_install=yes_without_prompt
-            az storage blob directory upload -c $AZURE_STORAGE_CONTAINER -s "$KQL_PATH" -d notebooks/kql --recursive
+            az storage blob sync -c $AZURE_STORAGE_CONTAINER -s notebooks/kql -d "$KQL_PATH"

@@ -69,22 +69,21 @@ class KQL:
     """
 
     def __init__(
-        self, workspaces=False, commondata=Path.home() / "cloudfiles/code/commondata"
+        self, workspaces=False, lists=Path(".")
     ):
         # Use managed service identity to login
         try:
             azcli(["login", "--identity"])
             azcli(["extension", "add", "-n", "log-analytics", "-y"])
             azcli(["extension", "add", "-n", "resource-graph", "-y"])
-            # run(["azcopy", "login", "--identity"])
         except Exception as e:
             # bail as we aren't able to login
             print(e)
         if isinstance(workspaces, list):
             self.sentinelworkspaces = workspaces
-        elif (commondata / "SentinelWorkspaces.csv").exists():
-            self.wsdf = pandas.read_csv(commondata / "SentinelWorkspaces.csv").join(
-                pandas.read_csv(commondata / "SecOps Groups.csv").set_index("Alias"),
+        elif (lists / "SentinelWorkspaces.csv").exists():
+            self.wsdf = pandas.read_csv((lists / "SentinelWorkspaces.csv").open()).join(
+                pandas.read_csv((lists / "SecOps Groups.csv").open()).set_index("Alias"),
                 on="SecOps Group",
             )
             self.ws_lookups = (
