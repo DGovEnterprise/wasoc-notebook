@@ -1,0 +1,7 @@
+SecurityIncident
+| summarize arg_min(TimeGenerated, *) by IncidentNumber
+| extend Tactics = tostring(AdditionalData.tactics)
+| extend Tactics = case(Tactics == "[]", pack_array("Not Defined"), Tactics)
+| mv-expand todynamic(Tactics)
+| summarize Count = count() by Title, tostring(Tactics)
+| sort by Count
