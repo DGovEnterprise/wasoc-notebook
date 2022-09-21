@@ -1,7 +1,51 @@
-import os, json, pandas
+import json, pandas
 from pathlib import Path
-from subprocess import run, check_output
+from cloudpathlib import AzureBlobClient
+from azure.storage.blob import BlobServiceClient
+from datetime import datetime, timedelta
+from subprocess import check_output
+from cacheout import Cache
 from concurrent.futures import ThreadPoolExecutor
+
+cache = Cache(maxsize=25600, ttl=300)
+
+@cache.memoize()
+def azcli(cmd: list):
+    "Run a general azure cli cmd"
+    cmd = ["az"] + cmd + ["--only-show-errors", "-o", "json"]
+    result = check_output(cmd)
+    if not result:
+        return None
+    return json.loads(result)
+
+
+def BlobPath(url, subscription):
+    "Mounts a blob url using azure cli"
+    expiry = str(datetime.today().date() + timedelta(days=7))
+    account, container = url.split("/")[2:]
+    account = account.split(".")[0]
+    sas = azcli(
+        [
+            "storage",
+            "container",
+            "generate-sas",
+            "--account-name",
+            account,
+            "-n",
+            container,
+            "--subscription",
+            subscription,
+            "--permissions",
+            "racwdlt",
+            "--expiry",
+            expiry
+        ]
+    )
+    print(sas)
+    blobclient = AzureBlobClient(blob_service_client = BlobServiceClient(account_url=url.replace(f"/{container}", ""), credential=sas))
+    path = blobclient.CloudPath(f"az://{container}")
+    return path
+
 
 
 class KQL:
@@ -24,20 +68,14 @@ class KQL:
     | where count_ > 0
     """
 
-    def azcli(cmd: list):
-        "Run a general azure cli cmd"
-        cmd = ["az"] + cmd + ["--only-show-errors", "-o", "json"]
-        result = check_output(cmd)
-        if not result:
-            return None
-        return json.loads(result)
-
-    def __init__(self, workspaces=False, commondata=Path.home() / "cloudfiles/code/commondata"):
+    def __init__(
+        self, workspaces=False, commondata=Path.home() / "cloudfiles/code/commondata"
+    ):
         # Use managed service identity to login
         try:
-            KQL.azcli(["login", "--identity"])
-            KQL.azcli(["extension", "add", "-n", "log-analytics", "-y"])
-            KQL.azcli(["extension", "add", "-n", "resource-graph", "-y"])
+            azcli(["login", "--identity"])
+            azcli(["extension", "add", "-n", "log-analytics", "-y"])
+            azcli(["extension", "add", "-n", "resource-graph", "-y"])
             # run(["azcopy", "login", "--identity"])
         except Exception as e:
             # bail as we aren't able to login
@@ -60,7 +98,7 @@ class KQL:
 
     def list_workspaces(self):
         "Get sentinel workspaces as a list of named tuples"
-        workspaces = KQL.azcli(
+        workspaces = azcli(
             [
                 "graph",
                 "query",
@@ -134,7 +172,7 @@ class KQL:
                 cmd += ["--query", outputfilter]
             cmds.append(cmd)
         with ThreadPoolExecutor() as executor:
-            for result in executor.map(KQL.azcli, cmds):
+            for result in executor.map(azcli, cmds):
                 if result:
                     results += result
         return results
