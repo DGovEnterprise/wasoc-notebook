@@ -1,0 +1,4 @@
+EmailEvents
+| where EmailDirection == "Inbound"
+| summarize Count=count()by DeliveryAction, bin(TimeGenerated, 1h)
+| render columnchart with (kind=unstacked, title="Email delivery actions over time")
