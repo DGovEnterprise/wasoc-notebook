@@ -1,0 +1,19 @@
+let asrdevices=
+    DeviceEvents
+    | where TimeGenerated > ago (30d)
+    | where ActionType startswith "Asr"
+    | distinct DeviceName;
+//Find all devices and exclude those that have previously triggered a rule
+DeviceInfo
+| where TimeGenerated > ago (30d)
+| where OSPlatform startswith "Windows"
+| summarize arg_max(TimeGenerated, *) by DeviceName
+| where DeviceName !in (asrdevices)
+| project
+    ['Time Last Seen']=TimeGenerated,
+    DeviceId,
+    DeviceName,
+    OSPlatform,
+    OSVersion,
+    LoggedOnUsers
+| summarize NoASREvents = dcount(DeviceName) by OSPlatform
