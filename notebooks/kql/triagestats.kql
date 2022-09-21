@@ -1,0 +1,7 @@
+SecurityIncident
+|where Status == 'Closed'  
+| extend Ownerr = case(tostring(Owner)=="", "Unassigned",tostring(Owner))
+| summarize arg_min(LastModifiedTime,*) by IncidentNumber, Owner = Ownerr
+| extend TimeToTriage = LastModifiedTime - CreatedTime, Owner
+| summarize avg(TimeToTriage/1h) by Owner
+| extend extractjson("$.assignedTo", Owner)
