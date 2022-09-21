@@ -27,6 +27,11 @@ jobs:
       # make sure AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_SAS_TOKEN are set 
       - name: Azure CLI Action
         uses: Azure/cli@v1
+        env:
+          AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+          AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
+          AZURE_STORAGE_CONTAINER: ${{ secrets.AZURE_STORAGE_CONTAINER }}
+          KQL_PATH: ${{ secrets.KQL_PATH }}
         with:
           inlineScript: |
             az config set extension.use_dynamic_install=yes_without_prompt
