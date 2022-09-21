@@ -1,0 +1,3 @@
+SecurityAlert
+| summarize alerts = dcount(VendorOriginalId) by Tactics, ProductName, AlertName
+| sort by alerts
