@@ -35,4 +35,4 @@ jobs:
         with:
           inlineScript: |
             az config set extension.use_dynamic_install=yes_without_prompt
-            az storage blob sync -c $AZURE_STORAGE_CONTAINER -s notebooks/kql -d "$KQL_PATH"
+            az storage blob sync -c ${{ env.AZURE_STORAGE_CONTAINER }} -s notebooks/kql -d "${{ env.KQL_PATH }}"
