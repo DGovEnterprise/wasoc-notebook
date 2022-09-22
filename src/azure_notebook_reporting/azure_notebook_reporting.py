@@ -127,6 +127,7 @@ class KQL:
         self.agency_info = self.wsdf[self.wsdf["SecOps Group"] == agency]
         self.agency_name = self.agency_info["Primary agency"].max()
         self.sentinelworkspaces = self.agency_info.customerId.dropna()
+        return self
 
     def list_workspaces() -> list[str]:
         "Get sentinel workspaces as a list of named tuples"
