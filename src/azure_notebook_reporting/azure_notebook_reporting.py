@@ -123,6 +123,7 @@ class KQL:
             self.sentinelworkspaces = KQL.list_workspaces()
 
     def set_agency(self, agency: str):
+        self.agency = agency
         self.agency_info = self.wsdf[self.wsdf["SecOps Group"] == agency]
         self.agency_name = self.agency_info["Primary agency"].max()
         self.sentinelworkspaces = self.agency_info.customerId.dropna()
