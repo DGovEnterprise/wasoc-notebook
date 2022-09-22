@@ -4,4 +4,4 @@ __pycache__*
 *.amltmp
 venv
 coverage.xml
-.coverage
+.coverage*

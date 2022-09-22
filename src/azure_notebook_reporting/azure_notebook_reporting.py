@@ -1,26 +1,57 @@
 import json, pandas
 from pathlib import Path
-from cloudpathlib import AzureBlobClient
+from typing import Union
+from cloudpathlib import AzureBlobClient, AnyPath
 from azure.storage.blob import BlobServiceClient
 from datetime import datetime, timedelta
 from subprocess import check_output
 from cacheout import Cache
 from concurrent.futures import ThreadPoolExecutor
+from pathvalidate import sanitize_filepath
 
 cache = Cache(maxsize=25600, ttl=300)
+azcli_loggedin = False
+
 
 @cache.memoize()
-def azcli(cmd: list):
-    "Run a general azure cli cmd"
+def azcli(cmd: list[str]) -> Union[None, bool, dict]:
+    """
+    Run an azure cli cmd, trying to login if not already logged in
+    """
+    global azcli_loggedin
+    if not azcli_loggedin:
+        # Use managed service identity to login, if not already logged in
+        try:
+            json.loads(check_output(["az", "account", "show", "-o", "json"]))["environmentName"]
+        except:
+            try:
+                check_output(["az", "login", "--identity"])
+            except Exception as e:
+                # bail as we aren't able to login
+                print(e)
+            else:
+                azcli_loggedin = True
+        else:
+            azcli_loggedin = True
     cmd = ["az"] + cmd + ["--only-show-errors", "-o", "json"]
-    result = check_output(cmd)
+    try:
+        result = check_output(cmd)
+    except Exception as e:
+        print(e)
+        azcli_loggedin = False
+        return False
     if not result:
         return None
     return json.loads(result)
 
 
-def BlobPath(url, subscription):
-    "Mounts a blob url using azure cli"
+def BlobPath(url: str, subscription: str = ""):
+    """
+    Mounts a blob url using azure cli
+    If called with no subscription, just returns a pathlib.Path pointing to url (for testing)
+    """
+    if subscription == "":
+        return Path(sanitize_filepath(url))
     expiry = str(datetime.today().date() + timedelta(days=7))
     account, container = url.split("/")[2:]
     account = account.split(".")[0]
@@ -38,14 +69,11 @@ def BlobPath(url, subscription):
             "--permissions",
             "racwdlt",
             "--expiry",
-            expiry
+            expiry,
         ]
     )
-    print(sas)
-    blobclient = AzureBlobClient(blob_service_client = BlobServiceClient(account_url=url.replace(f"/{container}", ""), credential=sas))
-    path = blobclient.CloudPath(f"az://{container}")
-    return path
-
+    blobclient = AzureBlobClient(blob_service_client=BlobServiceClient(account_url=url.replace(f"/{container}", ""), credential=sas))
+    return blobclient.CloudPath(f"az://{container}")
 
 
 class KQL:
@@ -68,35 +96,40 @@ class KQL:
     | where count_ > 0
     """
 
-    def __init__(
-        self, workspaces=False, lists=Path(".")
-    ):
-        # Use managed service identity to login
-        try:
-            azcli(["login", "--identity"])
-            azcli(["extension", "add", "-n", "log-analytics", "-y"])
-            azcli(["extension", "add", "-n", "resource-graph", "-y"])
-        except Exception as e:
-            # bail as we aren't able to login
-            print(e)
-        if isinstance(workspaces, list):
-            self.sentinelworkspaces = workspaces
-        elif (lists / "SentinelWorkspaces.csv").exists():
-            self.wsdf = pandas.read_csv((lists / "SentinelWorkspaces.csv").open()).join(
-                pandas.read_csv((lists / "SecOps Groups.csv").open()).set_index("Alias"),
+    def __init__(self, path: Union[Path, AnyPath], subfolder: str = "notebooks", timespan: str = "P30D"):
+        """
+        Convenience tooling for loading pandas dataframes from a path.
+        path is expected to be pathlib type object with a structure like below:
+        .
+        `--{subfolder}
+           |--kql
+           |  |--*/*.kql
+           |--lists
+           |  |--SentinelWorkspaces.csv
+           |  `--SecOps Groups.csv
+           `--reports
+              `--*/*/*.pdf
+        """
+        self.timespan, self.path, self.nbpath = timespan, path, path / sanitize_filepath(subfolder)
+        self.kql, self.lists, self.reports = self.nbpath / "kql", self.nbpath / "lists", self.nbpath / "reports"
+        if (self.lists / "SentinelWorkspaces.csv").exists():
+            self.wsdf = pandas.read_csv((self.lists / "SentinelWorkspaces.csv").open()).join(
+                pandas.read_csv((self.lists / "SecOps Groups.csv").open()).set_index("Alias"),
                 on="SecOps Group",
             )
-            self.ws_lookups = (
-                self.wsdf[["customerId", "Primary agency", "SecOps Group"]]
-                .set_index("customerId")
-                .to_dict()
-            )
+            self.ws_lookups = self.wsdf[["customerId", "Primary agency", "SecOps Group"]].set_index("customerId").to_dict()
             self.sentinelworkspaces = list(self.wsdf.customerId.dropna())
         else:
-            self.sentinelworkspaces = self.list_workspaces()
+            self.sentinelworkspaces = KQL.list_workspaces()
 
-    def list_workspaces(self):
+    def set_agency(self, agency: str):
+        self.agency_info = self.wsdf[self.wsdf.Alias == agency]
+        self.agency_name = self.agency_info["Primary agency"].max()
+        self.sentinelworkspaces = self.agency_info.customerId.dropna()
+
+    def list_workspaces() -> list[str]:
         "Get sentinel workspaces as a list of named tuples"
+        azcli(["extension", "add", "-n", "resource-graph", "-y"])
         workspaces = azcli(
             [
                 "graph",
@@ -109,13 +142,16 @@ class KQL:
                 "data[]",
             ]
         )
+        if not workspaces:
+            return []
         # subscriptions is filtered to just those with security solutions installed
         sentinelworkspaces = list()
         # TODO: page on skiptoken if total workspaces exceeds 1000
         # cross check workspaces to make sure they have SecurityIncident tables
-        validated = self.analytics_query(
-            KQL.distinct_tenantids,
-            [ws["customerId"] for ws in workspaces],
+        validated = KQL.analytics_query(
+            workspaces=[ws["customerId"] for ws in workspaces],
+            query=KQL.distinct_tenantids,
+            timespan="P7D",
             outputfilter="[].TenantId",
         )
         for ws in workspaces:
@@ -123,8 +159,13 @@ class KQL:
                 sentinelworkspaces.append(ws["customerId"])
         return sentinelworkspaces
 
-    def query2pd(self, kql, timespan="P7D"):
-        return pandas.json_normalize(self.analytics_query(query=kql, timespan=timespan))
+    def kql2df(self, kql: str):
+        # Load or directly query kql against workspaces
+        # Parse results as json and return as a dataframe
+        kql = sanitize_filepath(kql)
+        if kql.endswith(".kql") and (self.kql / kql).exists():
+            kql = (self.kql / kql).open().read()
+        return pandas.json_normalize(KQL.analytics_query(workspaces=self.sentinelworkspaces, query=kql, timespan=self.timespan))
 
     def rename_and_sort(self, df, names, rows=40, cols=40):
         # Rename columns based on dict
@@ -138,14 +179,12 @@ class KQL:
         return df
 
     def analytics_query(
-        self,
+        workspaces,
         query: str,
-        workspaces: list = [],
-        timespan: str = "P7D",
+        timespan: str,
         outputfilter: str = "",
     ):
         "Queries a list of workspaces using kusto"
-        workspaces = workspaces or self.sentinelworkspaces
         print(f"Log analytics query across {len(workspaces)} workspaces")
         chunkSize = 20  # limit to 20 parallel workspaces at a time https://docs.microsoft.com/en-us/azure/azure-monitor/logs/cross-workspace-query#cross-resource-query-limits
         chunks = [
@@ -153,6 +192,7 @@ class KQL:
         ]  # awesome list comprehension to break big list into chunks of chunkSize
         # chunks = [[1..10],[11..20]]
         results, cmds = [], []
+        azcli(["extension", "add", "-n", "log-analytics", "-y"])
         for chunk in chunks:
             cmd = [
                 "monitor",

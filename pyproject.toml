@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "azure_notebook_reporting"
-version = "0.1.1"
+version = "0.1.2"
 description = "A package to easily pull in azure cli and generate reports using seaborn and pandas."
 authors = ["Adon Metcalfe"]
 license = "Apache License 2.0"
@@ -18,8 +18,12 @@ azure-cli = "^2.40.0"
 setuptools = "^65.3.0"
 cacheout = "^0.14.1"
 pip = "^22.2.2"
+pathvalidate = "^2.5.2"
 
 [tool.poetry.dev-dependencies]
+
+[tool.black]
+line-length = 160
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
