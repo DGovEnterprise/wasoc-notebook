@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from subprocess import check_output
 from cacheout import Cache
 from concurrent.futures import ThreadPoolExecutor
+from itertools import repeat
 from pathvalidate import sanitize_filepath
 
 cache = Cache(maxsize=25600, ttl=300)
@@ -14,7 +15,7 @@ azcli_loggedin = False
 
 
 @cache.memoize()
-def azcli(cmd: list[str]) -> Union[None, bool, dict]:
+def azcli(cmd: list[str], df=False) -> Union[None, bool, dict]:
     """
     Run an azure cli cmd, trying to login if not already logged in
     """
@@ -35,14 +36,14 @@ def azcli(cmd: list[str]) -> Union[None, bool, dict]:
             azcli_loggedin = True
     cmd = ["az"] + cmd + ["--only-show-errors", "-o", "json"]
     try:
-        result = check_output(cmd)
+        result = check_output(cmd) or "null"
     except Exception as e:
         print(e)
         azcli_loggedin = False
-        return False
-    if not result:
-        return None
-    return json.loads(result)
+    if df:
+        return pandas.read_json(result.decode("utf8"))
+    else:
+        return json.loads(result)
 
 
 def BlobPath(url: str, subscription: str = ""):
@@ -126,7 +127,7 @@ class KQL:
         self.agency = agency
         self.agency_info = self.wsdf[self.wsdf["SecOps Group"] == agency]
         self.agency_name = self.agency_info["Primary agency"].max()
-        self.sentinelworkspaces = self.agency_info.customerId.dropna()
+        self.sentinelworkspaces = list(self.agency_info.customerId.dropna())
         return self
 
     def list_workspaces() -> list[str]:
@@ -150,12 +151,7 @@ class KQL:
         sentinelworkspaces = list()
         # TODO: page on skiptoken if total workspaces exceeds 1000
         # cross check workspaces to make sure they have SecurityIncident tables
-        validated = KQL.analytics_query(
-            workspaces=[ws["customerId"] for ws in workspaces],
-            query=KQL.distinct_tenantids,
-            timespan="P7D",
-            outputfilter="[].TenantId",
-        )
+        validated = set(KQL.analytics_query(workspaces=[ws["customerId"] for ws in workspaces], query=KQL.distinct_tenantids, timespan="P7D")["TenantId"])
         for ws in workspaces:
             if ws["customerId"] in validated:
                 sentinelworkspaces.append(ws["customerId"])
@@ -167,7 +163,11 @@ class KQL:
         kql = sanitize_filepath(kql)
         if kql.endswith(".kql") and (self.kql / kql).exists():
             kql = (self.kql / kql).open().read()
-        return pandas.json_normalize(KQL.analytics_query(workspaces=self.sentinelworkspaces, query=kql, timespan=self.timespan))
+        df = KQL.analytics_query(workspaces=self.sentinelworkspaces, query=kql, timespan=self.timespan)
+        df = df[df.columns].apply(pandas.to_numeric, errors="ignore")
+        df = df[df.columns].apply(pandas.to_datetime, errors="ignore")
+        df = df.convert_dtypes()
+        return df
 
     def rename_and_sort(self, df, names, rows=40, cols=40):
         # Rename columns based on dict
@@ -181,10 +181,9 @@ class KQL:
         return df
 
     def analytics_query(
-        workspaces,
+        workspaces: list[str],
         query: str,
         timespan: str,
-        outputfilter: str = "",
     ):
         "Queries a list of workspaces using kusto"
         print(f"Log analytics query across {len(workspaces)} workspaces")
@@ -209,11 +208,9 @@ class KQL:
             ]
             if len(chunk) > 1:
                 cmd += ["--workspaces"] + chunk[1:]
-            if outputfilter:
-                cmd += ["--query", outputfilter]
             cmds.append(cmd)
         with ThreadPoolExecutor() as executor:
-            for result in executor.map(azcli, cmds):
-                if result:
-                    results += result
-        return results
+            for result in executor.map(azcli, cmds, repeat(True)):
+                if not result.empty:
+                    results.append(result)
+        return pandas.concat(results)
