@@ -218,9 +218,9 @@ class KQL:
             return pandas.concat(results)
         else:
             table = query.split("\n")[0].split(" ")[0].strip()
-            return pandas.DataFrame([{f"Sentinel Table: {table}": f"No Data in timespan {timespan}"}])
+            return pandas.DataFrame([{f"{table}": f"No Data in timespan {timespan}"}])
 
-    def df2fig(dataframe, title, x, y, split, maxsplit=10, kind="area", quantile=0.9, yclip=10):
+    def df2fig(dataframe, title, x, y, split, maxsplit=10, kind="area", quantile=0.9, yclip=10, agg="sum"):
         """
         Given a dataframe, draws an area plot from an x column, numeric y column and a split grouping.
         This attempts to split the dataframe if needed using the grouping based on a quantile analysis to produce
@@ -243,7 +243,7 @@ class KQL:
         for title, df in dfs.items():
             if df.empty:
                 continue
-            df = df.groupby([x, split])[y].sum().unstack()
+            df = df.groupby([x, split])[y].agg(agg).unstack()
             df = df[df.sum(numeric_only=True).sort_values(ascending=False).index]
             ax = df.plot(kind=kind, title=title)
             handles, labels = ax.get_legend_handles_labels()
