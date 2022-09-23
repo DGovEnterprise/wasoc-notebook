@@ -39,7 +39,7 @@ def azcli(cmd: list[str], df=False) -> Union[None, bool, dict]:
         result = check_output(cmd) or "null"
     except Exception as e:
         print(e)
-        azcli_loggedin = False
+        result, azcli_loggedin = "null", False
     if df:
         return pandas.read_json(result.decode("utf8"))
     else:
@@ -219,8 +219,15 @@ class KQL:
         else:
             table = query.split("\n")[0].split(" ")[0].strip()
             return pandas.DataFrame([{f"Sentinel Table: {table}": f"No Data in timespan {timespan}"}])
-    
+
     def df2fig(dataframe, title, x, y, split, maxsplit=10, kind="area", quantile=0.9, yclip=10):
+        """
+        Given a dataframe, draws an area plot from an x column, numeric y column and a split grouping.
+        This attempts to split the dataframe if needed using the grouping based on a quantile analysis to produce
+        sensibly sized charts.
+
+        It also groups all 'tiny' groups into an other category to keep legend sizes sane.
+        """
         df = dataframe.copy(deep=True)
         splitsizes = df.groupby(split).sum(numeric_only=True).sort_values(y, ascending=False)
         df[split] = df[split].replace({label: "Other" for label in splitsizes[maxsplit:].index})
@@ -231,10 +238,7 @@ class KQL:
             splits = splitsizes[y] > upper
             uppersplit, lowersplit = set(splits[splits == True].index), set(splits[splits == False].index)
             if len(lowersplit) > 0:
-                dfs = {
-                    title: df[df[split].isin(lowersplit)],
-                    f"{title} (Outliers > {quantile})": df[df[split].isin(uppersplit)]
-                }
+                dfs = {title: df[df[split].isin(lowersplit)], f"{title} (Outliers > {quantile})": df[df[split].isin(uppersplit)]}
         figures = []
         for title, df in dfs.items():
             if df.empty:
