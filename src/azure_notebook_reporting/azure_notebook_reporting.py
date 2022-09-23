@@ -219,3 +219,31 @@ class KQL:
         else:
             table = query.split("\n")[0].split(" ")[0].strip()
             return pandas.DataFrame([{f"Sentinel Table: {table}": f"No Data in timespan {timespan}"}])
+    
+    def df2fig(dataframe, title, x, y, split, maxsplit=10, kind="area", quantile=0.9, yclip=10):
+        df = dataframe.copy(deep=True)
+        splitsizes = df.groupby(split).sum(numeric_only=True).sort_values(y, ascending=False)
+        df[split] = df[split].replace({label: "Other" for label in splitsizes[maxsplit:].index})
+        upper = splitsizes[y].quantile(quantile)
+        yspread = splitsizes[y].max() / upper
+        dfs = {title: df}
+        if yspread > yclip:
+            splits = splitsizes[y] > upper
+            uppersplit, lowersplit = set(splits[splits == True].index), set(splits[splits == False].index)
+            if len(lowersplit) > 0:
+                dfs = {
+                    title: df[df[split].isin(lowersplit)],
+                    f"{title} (Outliers > {quantile})": df[df[split].isin(uppersplit)]
+                }
+        figures = []
+        for title, df in dfs.items():
+            if df.empty:
+                continue
+            df = df.groupby([x, split])[y].sum().unstack()
+            df = df[df.sum(numeric_only=True).sort_values(ascending=False).index]
+            ax = df.plot(kind=kind, title=title)
+            handles, labels = ax.get_legend_handles_labels()
+            ax.legend(reversed(handles), reversed(labels), title=split)
+            figures.append(ax.figure)
+        figures.reverse()
+        return figures
