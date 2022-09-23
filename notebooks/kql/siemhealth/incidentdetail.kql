@@ -1,7 +1,7 @@
 SecurityIncident
-| summarize arg_min(TimeGenerated, *) by IncidentNumber
-| extend Tactics = tostring(AdditionalData.tactics)
+| summarize arg_max(TimeGenerated,Title,Tactics=tostring(AdditionalData.tactics),Severity,Status,Classification,ClosedTime,CreatedTime,FirstModifiedTime) by IncidentNumber
 | extend Tactics = case(Tactics == "[]", pack_array("Unknown"), Tactics)
 | mv-expand todynamic(Tactics)
-| summarize incidents = dcount(IncidentNumber) by Title, tostring(Tactics), Severity, startofday(TimeGenerated)
-| sort by incidents
+| extend OpenHours = (iif(isnull(ClosedTime), now(), ClosedTime) - CreatedTime)/1h
+| extend TriageHours = (FirstModifiedTime - CreatedTime)/1h
+| order by OpenHours

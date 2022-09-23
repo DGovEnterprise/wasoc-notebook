@@ -1,3 +1,2 @@
 EmailEvents
-| where EmailDirection == "Inbound"
-| summarize Count=count()by DeliveryAction, bin(TimeGenerated, 1h)
+| summarize Count=count()by DeliveryAction, EmailDirection, bin(TimeGenerated, 1h)

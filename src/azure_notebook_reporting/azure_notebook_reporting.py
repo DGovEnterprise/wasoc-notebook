@@ -157,15 +157,16 @@ class KQL:
                 sentinelworkspaces.append(ws["customerId"])
         return sentinelworkspaces
 
-    def kql2df(self, kql: str):
+    def kql2df(self, kql: str, timespan: str = ""):
         # Load or directly query kql against workspaces
         # Parse results as json and return as a dataframe
         kql = sanitize_filepath(kql)
         if kql.endswith(".kql") and (self.kql / kql).exists():
             kql = (self.kql / kql).open().read()
-        df = KQL.analytics_query(workspaces=self.sentinelworkspaces, query=kql, timespan=self.timespan)
+        df = KQL.analytics_query(workspaces=self.sentinelworkspaces, query=kql, timespan=timespan or self.timespan)
         df = df[df.columns].apply(pandas.to_numeric, errors="ignore")
-        df = df[df.columns].apply(pandas.to_datetime, errors="ignore")
+        if "TimeGenerated" in df.columns:
+            df["TimeGenerated"] = pandas.to_datetime(df["TimeGenerated"])
         df = df.convert_dtypes()
         return df
 
@@ -213,4 +214,8 @@ class KQL:
             for result in executor.map(azcli, cmds, repeat(True)):
                 if not result.empty:
                     results.append(result)
-        return pandas.concat(results)
+        if results:
+            return pandas.concat(results)
+        else:
+            table = query.split("\n")[0].split(" ")[0].strip()
+            return pandas.DataFrame([{f"Sentinel Table: {table}": f"No Data in timespan {timespan}"}])

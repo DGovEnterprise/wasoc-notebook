@@ -3,4 +3,3 @@ OfficeActivity
 | where UserId contains "#ext#"
 | summarize Count=count() by FileUrl = OfficeObjectId
 | sort by Count desc
-| take 10
