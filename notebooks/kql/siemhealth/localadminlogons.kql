@@ -1,9 +1,9 @@
-let devices=
-    DeviceInfo
-    | summarize arg_max(TimeGenerated, *) by DeviceName
-    | project DeviceName;
 DeviceLogonEvents
 | where IsLocalAdmin == true
-| join kind=inner devices on DeviceName
+| join kind=inner (
+    DeviceInfo
+    | summarize arg_max(TimeGenerated, *) by DeviceName
+    | project DeviceName
+) on DeviceName
 | summarize dcount(DeviceName) by AccountName
 | order by dcount_DeviceName

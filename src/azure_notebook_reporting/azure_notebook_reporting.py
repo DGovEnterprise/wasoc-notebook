@@ -160,9 +160,8 @@ class KQL:
     def kql2df(self, kql: str, timespan: str = ""):
         # Load or directly query kql against workspaces
         # Parse results as json and return as a dataframe
-        kql = sanitize_filepath(kql)
-        if kql.endswith(".kql") and (self.kql / kql).exists():
-            kql = (self.kql / kql).open().read()
+        if kql.endswith(".kql") and (self.kql / sanitize_filepath(kql)).exists():
+            kql = (self.kql / sanitize_filepath(kql)).open().read()
         df = KQL.analytics_query(workspaces=self.sentinelworkspaces, query=kql, timespan=timespan or self.timespan)
         df = df[df.columns].apply(pandas.to_numeric, errors="ignore")
         if "TimeGenerated" in df.columns:
