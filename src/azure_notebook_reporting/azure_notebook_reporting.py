@@ -1,6 +1,7 @@
-import json, pandas
+import json, pandas, seaborn, esparto, tinycss2, tempfile
 from pathlib import Path
 from typing import Union
+from string import Template
 from cloudpathlib import AzureBlobClient, AnyPath
 from azure.storage.blob import BlobServiceClient
 from datetime import datetime, timedelta
@@ -97,6 +98,61 @@ class KQL:
     | where count_ > 0
     """
 
+    pdf_css = Template(
+        """
+    @media print {
+        .es-page-title, 
+        .es-section-title, 
+        .es-row-title, 
+        .es-column-title {
+            page-break-after: avoid;
+            color: $titles;
+            font-weight: bold;
+        }
+        .es-row-body, 
+        .es-column-body, 
+        .es-card {
+            page-break-inside: avoid;
+        }
+        .es-column-body, 
+        .es-card, 
+        .es-card-body {
+            flex: 1 !important;
+        }
+    }
+    html > body {
+        background-color: transparent !important;
+    }
+    body > main {
+        font-family: $font;
+        font-size: 0.8em;
+        color: $body;
+    }
+    a {
+        color: $links;
+    }
+    @page {
+        size: A4 portrait;
+        font-family: $font;
+        margin: 1.5cm 1cm;
+        @bottom-right {
+            font-size: 0.6em;
+            line-height: 1.5em;
+            margin-bottom: -0.2cm;
+            margin-right: -0.5cm;
+            color: $footer;
+            content: "$entity ($title)\A $date | " counter(page) " of " counter(pages);
+            white-space: pre;
+        }
+        background: url("$background");
+        background-position: -1cm -1.5cm;
+        background-size: 210mm 297mm;
+    }
+    """
+    )
+
+    sns = seaborn
+
     def __init__(self, path: Union[Path, AnyPath], subfolder: str = "notebooks", timespan: str = "P30D"):
         """
         Convenience tooling for loading pandas dataframes from a path.
@@ -111,6 +167,7 @@ class KQL:
            `--reports
               `--*/*/*.pdf
         """
+        self.pdf_css_file = False
         self.timespan, self.path, self.nbpath = timespan, path, path / sanitize_filepath(subfolder)
         self.kql, self.lists, self.reports = self.nbpath / "kql", self.nbpath / "lists", self.nbpath / "reports"
         if (self.lists / "SentinelWorkspaces.csv").exists():
@@ -129,6 +186,31 @@ class KQL:
         self.agency_name = self.agency_info["Primary agency"].max()
         self.sentinelworkspaces = list(self.agency_info.customerId.dropna())
         return self
+
+    def Page(self, title, font="arial", table_of_contents=True, **kwargs):
+        # Return an esparto page for reporting after customising css and style seaborn / matplotlib
+        kwargs["title"] = title
+        kwargs["font"] = font
+        self.sns.set_theme(
+            style="darkgrid",
+            context="paper",
+            font=font,
+            font_scale=0.7,
+            rc={"figure.figsize": (7, 4), "figure.constrained_layout.use": True, "legend.loc": "upper right"},
+        )
+
+        if not esparto.options.esparto_css == self.pdf_css_file.name:  # once off tweak default css
+            base_css = tinycss2.parse_stylesheet(open(esparto.options.esparto_css).read())
+            base_css = [r for r in base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
+            if not self.pdf_css_file:
+                self.pdf_css_file = tempfile.NamedTemporaryFile()
+                extra_css = self.pdf_css.substitute(kwargs)
+                for rule in base_css + extra_css:
+                    self.pdf_css_file.write(rule.serialize())
+                self.pdf_css_file.flush()
+            esparto.options.esparto_css = self.pdf_css_file.name
+
+        return esparto.Page(title=title, table_of_contents=table_of_contents)
 
     def list_workspaces() -> list[str]:
         "Get sentinel workspaces as a list of named tuples"
