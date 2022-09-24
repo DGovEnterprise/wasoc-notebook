@@ -199,12 +199,12 @@ class KQL:
             rc={"figure.figsize": (7, 4), "figure.constrained_layout.use": True, "legend.loc": "upper right"},
         )
 
-        if not esparto.options.esparto_css == self.pdf_css_file.name:  # once off tweak default css
+        if not self.pdf_css_file or esparto.options.esparto_css != self.pdf_css_file.name:  # once off tweak default css
             base_css = tinycss2.parse_stylesheet(open(esparto.options.esparto_css).read())
             base_css = [r for r in base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
             if not self.pdf_css_file:
-                self.pdf_css_file = tempfile.NamedTemporaryFile()
-                extra_css = self.pdf_css.substitute(kwargs)
+                self.pdf_css_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t")
+                extra_css = tinycss2.parse_stylesheet(self.pdf_css.substitute(kwargs))
                 for rule in base_css + extra_css:
                     self.pdf_css_file.write(rule.serialize())
                 self.pdf_css_file.flush()
