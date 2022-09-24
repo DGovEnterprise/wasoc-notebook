@@ -332,3 +332,12 @@ class KQL:
             figures.append(ax.figure)
         figures.reverse()
         return figures
+
+    def minitable(df):
+        html = df.to_html(classes=["table", "table-hover", "small"])
+        html = f"<div class='table-responsive es-table'><small><small>{html}</small></small></div>"
+        return html
+
+    def dfago(df, timespan, col="TimeGenerated"):
+        df = df.copy(deep=True)
+        return df[df[col] >= (df[col].max() - pandas.to_timedelta(timespan))].reset_index()
