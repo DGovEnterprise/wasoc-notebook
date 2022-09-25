@@ -155,15 +155,17 @@ class KQL:
 
     def __init__(self, path: Union[Path, AnyPath], subfolder: str = "notebooks", timespan: str = "P30D"):
         """
-        Convenience tooling for loading pandas dataframes from a path.
+        Convenience tooling for loading pandas dataframes using context from a path.
         path is expected to be pathlib type object with a structure like below:
         .
-        `--{subfolder}
+        `--{subfolder} (default is notebooks)
            |--kql
            |  |--*/*.kql
            |--lists
            |  |--SentinelWorkspaces.csv
            |  `--SecOps Groups.csv
+           |--markdown
+           |  `--**.md           
            `--reports
               `--*/*/*.pdf
         """
