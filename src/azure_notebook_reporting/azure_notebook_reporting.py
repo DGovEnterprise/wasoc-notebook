@@ -2,12 +2,13 @@ import json, pandas, seaborn, esparto, tinycss2, tempfile
 from pathlib import Path
 from typing import Union
 from string import Template
+from IPython import display
 from cloudpathlib import AzureBlobClient, AnyPath
 from azure.storage.blob import BlobServiceClient
 from datetime import datetime, timedelta
 from subprocess import check_output
 from cacheout import Cache
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait, Future
 from itertools import repeat
 from pathvalidate import sanitize_filepath
 
@@ -141,7 +142,7 @@ class KQL:
             margin-bottom: -0.2cm;
             margin-right: -0.5cm;
             color: $footer;
-            content: "$entity ($title)\A $date | " counter(page) " of " counter(pages);
+            content: "$title ($entity)\A $date | " counter(page) " of " counter(pages);
             white-space: pre;
         }
         background: url("$background");
@@ -153,7 +154,7 @@ class KQL:
 
     sns = seaborn
 
-    def __init__(self, path: Union[Path, AnyPath], subfolder: str = "notebooks", timespan: str = "P30D"):
+    def __init__(self, path: Union[Path, AnyPath], template: str, queries: dict = {}, subfolder: str = "notebooks", timespan: str = "P30D"):
         """
         Convenience tooling for loading pandas dataframes using context from a path.
         path is expected to be pathlib type object with a structure like below:
@@ -165,7 +166,7 @@ class KQL:
            |  |--SentinelWorkspaces.csv
            |  `--SecOps Groups.csv
            |--markdown
-           |  `--**.md           
+           |  `--**.md
            `--reports
               `--*/*/*.pdf
         """
@@ -181,17 +182,75 @@ class KQL:
             self.sentinelworkspaces = list(self.wsdf.customerId.dropna())
         else:
             self.sentinelworkspaces = KQL.list_workspaces()
+        self.today = pandas.Timestamp("today")
+        self.load_templates(mdpath=template)
+        azcli(["extension", "add", "-n", "log-analytics", "-y"])
+        self.load_queries(queries=queries)
 
-    def set_agency(self, agency: str):
+    def set_agency(self, agency: str, sample_agency: str = "", sample_only: bool = False):
+        # if sample_only = True, build report with only mock data
+        # if sample_only = False, build report as usual, only substituting missing data with sample data
+        # sections should 'anonymise' sample data prior to rendering
         self.agency = agency
         self.agency_info = self.wsdf[self.wsdf["SecOps Group"] == agency]
         self.agency_name = self.agency_info["Primary agency"].max()
         self.sentinelworkspaces = list(self.agency_info.customerId.dropna())
+        self.sample_agency = sample_agency
+        self.sample_only = sample_only
+        if self.sample_agency:
+            self.sampleworkspaces = list(self.wsdf[self.wsdf["SecOps Group"] == sample_agency].customerId.dropna())
+        else:
+            self.sampleworkspaces = False
         return self
 
-    def Page(self, title, font="arial", table_of_contents=True, **kwargs):
+    def load_queries(self, queries: dict):
+        """
+        load a bunch of kql into dataframes
+        """
+        querystats = {}
+        if queries:
+            with ThreadPoolExecutor() as executor:
+                print(
+                    f"Running {len(queries.keys())} queries across {self.agency_name}: {len(self.sentinelworkspaces)} workspaces (sample: {self.sample_agency}): "
+                )
+                for key, kql in queries.items():
+                    if self.sample_only:
+                        # force return no results to fallback to sample data
+                        query = (self.kql / kql).open().read()
+                        table = query.split("\n")[0].split(" ")[0].strip()
+                        queries[key] = pandas.DataFrame([{f"{table}": f"No Data in timespan {self.timespan}"}])
+                    else:
+                        queries[key] = executor.submit(self.kql2df, kql)
+                wait([f for f in queries.values() if isinstance(f, Future)])
+                queries.update({key: f.result() for key, f in queries.items() if isinstance(f, Future)})
+                for key, df in queries.items():
+                    if df.count().max() == 1 and df.iloc[0, 0].startswith("No Data"):
+                        querystats[key] = [0, f"{df.columns[0]} - {df.iloc[0,0]}"]
+                        if self.sampleworkspaces:
+                            queries[key] = executor.submit(self.kql2df, kql, workspaces=self.sampleworkspaces)
+                    else:
+                        querystats[key] = [df.count().max(), len(df.columns)]
+                wait([f for f in queries.values() if isinstance(f, Future)])
+                queries.update({key: f.result() for key, f in queries.items() if isinstance(f, Future)})
+                self.queries = queries
+        if querystats:
+            self.querystats = pandas.DataFrame(querystats).T.rename(columns={0: "Rows", 1: "Columns"}).sort_values("Rows")
+
+    def load_templates(self, mdpath: str):
+        """
+        Reads a markdown file, and converts into a dictionary
+        of template fragments and a report title.
+
+        Report title set based on h1 title at top of document
+        Sections split with a horizontal rule, and keys are set based on h2's.
+        """
+        md_tmpls = (self.nbpath / mdpath).open().read().split("\n---\n\n")
+        md_tmpls = [tmpl.split("\n", 1) for tmpl in md_tmpls]
+        self.report_title = md_tmpls[0][0].replace("# ", "")
+        self.report_sections = {title.replace("## ", ""): Template(content) for title, content in md_tmpls[1:]}
+
+    def init_report(self, font="arial", table_of_contents=True, **kwargs):
         # Return an esparto page for reporting after customising css and style seaborn / matplotlib
-        kwargs["title"] = title
         kwargs["font"] = font
         self.sns.set_theme(
             style="darkgrid",
@@ -200,19 +259,30 @@ class KQL:
             font_scale=0.7,
             rc={"figure.figsize": (7, 4), "figure.constrained_layout.use": True, "legend.loc": "upper right"},
         )
+        self.css_params = kwargs
+        self.report = esparto.Page(title=self.report_title, table_of_contents=table_of_contents)
 
+    def report_pdf(self, preview=True):
         if not self.pdf_css_file or esparto.options.esparto_css != self.pdf_css_file.name:  # once off tweak default css
             base_css = tinycss2.parse_stylesheet(open(esparto.options.esparto_css).read())
             base_css = [r for r in base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
             if not self.pdf_css_file:
                 self.pdf_css_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t")
-                extra_css = tinycss2.parse_stylesheet(self.pdf_css.substitute(kwargs))
+                extra_css = tinycss2.parse_stylesheet(self.pdf_css.substitute(title=self.report_title, **self.css_params))
                 for rule in base_css + extra_css:
                     self.pdf_css_file.write(rule.serialize())
                 self.pdf_css_file.flush()
             esparto.options.esparto_css = self.pdf_css_file.name
 
-        return esparto.Page(title=title, table_of_contents=table_of_contents)
+        agency_dir = self.nbpath / f"reports/{self.agency}"
+        agency_dir.mkdir(parents=True, exist_ok=True)
+
+        self.pdf_file = agency_dir / f"{self.report_title.replace(' ','')}-{self.today.strftime('%b%Y')}.pdf"
+        self.report.save_pdf(self.pdf_file)
+        if preview:
+            return display.IFrame(self.pdf_file, width=1200, height=800)
+        else:
+            return self.pdf_file
 
     def list_workspaces() -> list[str]:
         "Get sentinel workspaces as a list of named tuples"
@@ -241,12 +311,14 @@ class KQL:
                 sentinelworkspaces.append(ws["customerId"])
         return sentinelworkspaces
 
-    def kql2df(self, kql: str, timespan: str = ""):
+    def kql2df(self, kql: str, timespan: str = "", workspaces: list[str] = []):
         # Load or directly query kql against workspaces
         # Parse results as json and return as a dataframe
+        if not workspaces:
+            workspaces = self.sentinelworkspaces
         if kql.endswith(".kql") and (self.kql / sanitize_filepath(kql)).exists():
             kql = (self.kql / sanitize_filepath(kql)).open().read()
-        df = KQL.analytics_query(workspaces=self.sentinelworkspaces, query=kql, timespan=timespan or self.timespan)
+        df = KQL.analytics_query(workspaces=workspaces, query=kql, timespan=timespan or self.timespan)
         df = df[df.columns].apply(pandas.to_numeric, errors="ignore")
         if "TimeGenerated" in df.columns:
             df["TimeGenerated"] = pandas.to_datetime(df["TimeGenerated"])
@@ -270,14 +342,12 @@ class KQL:
         timespan: str,
     ):
         "Queries a list of workspaces using kusto"
-        print(f"Log analytics query across {len(workspaces)} workspaces")
         chunkSize = 20  # limit to 20 parallel workspaces at a time https://docs.microsoft.com/en-us/azure/azure-monitor/logs/cross-workspace-query#cross-resource-query-limits
         chunks = [
             workspaces[x : x + chunkSize] for x in range(0, len(workspaces), chunkSize)
         ]  # awesome list comprehension to break big list into chunks of chunkSize
         # chunks = [[1..10],[11..20]]
         results, cmds = [], []
-        azcli(["extension", "add", "-n", "log-analytics", "-y"])
         for chunk in chunks:
             cmd = [
                 "monitor",
@@ -293,10 +363,12 @@ class KQL:
             if len(chunk) > 1:
                 cmd += ["--workspaces"] + chunk[1:]
             cmds.append(cmd)
+            print(".", end="")
         with ThreadPoolExecutor() as executor:
             for result in executor.map(azcli, cmds, repeat(True)):
                 if not result.empty:
                     results.append(result)
+                    print("!", end="")
         if results:
             return pandas.concat(results)
         else:
