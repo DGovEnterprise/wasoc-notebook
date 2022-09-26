@@ -1,4 +1,4 @@
-import json, pandas, seaborn, esparto, tinycss2, tempfile
+import json, pandas, seaborn, esparto, tinycss2, tempfile, hashlib, pickle
 from pathlib import Path
 from typing import Union
 from string import Template
@@ -41,7 +41,7 @@ def azcli(cmd: list[str], df=False) -> Union[None, bool, dict]:
         result = check_output(cmd) or "null"
     except Exception as e:
         print(e)
-        result, azcli_loggedin = "null", False
+        result, azcli_loggedin = "null".encode(), False
     if df:
         return pandas.read_json(result.decode("utf8"))
     else:
@@ -106,7 +106,6 @@ class KQL:
         .es-section-title, 
         .es-row-title, 
         .es-column-title {
-            page-break-after: avoid;
             color: $titles;
             font-weight: bold;
         }
@@ -119,6 +118,7 @@ class KQL:
         .es-card, 
         .es-card-body {
             flex: 1 !important;
+            page-break-inside: avoid;
         }
     }
     html > body {
@@ -133,7 +133,7 @@ class KQL:
         color: $links;
     }
     .table {
-        font-size: 0.8em;
+        font-size: 0.7em;
     }
     @page {
         size: A4 portrait;
@@ -261,21 +261,21 @@ class KQL:
             font_scale=0.7,
             rc={"figure.figsize": (7, 4), "figure.constrained_layout.use": True, "legend.loc": "upper right"},
         )
+        pandas.set_option("display.max_colwidth", None)
         self.css_params = kwargs
-        self.report = esparto.Page(title=self.report_title, table_of_contents=table_of_contents)
+        base_css = tinycss2.parse_stylesheet(open(esparto.options.esparto_css).read())
+        base_css = [r for r in base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
+        if not self.pdf_css_file:
+            self.pdf_css_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t")
+            extra_css = tinycss2.parse_stylesheet(self.pdf_css.substitute(title=self.report_title, **self.css_params))
+            for rule in base_css + extra_css:
+                self.pdf_css_file.write(rule.serialize())
+            self.pdf_css_file.flush()
+        self.report = esparto.Page(title=self.report_title, table_of_contents=table_of_contents, output_options=esparto.OutputOptions(
+            esparto_css = self.pdf_css_file.name
+        ))
 
     def report_pdf(self, preview=True):
-        if not self.pdf_css_file or esparto.options.esparto_css != self.pdf_css_file.name:  # once off tweak default css
-            base_css = tinycss2.parse_stylesheet(open(esparto.options.esparto_css).read())
-            base_css = [r for r in base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
-            if not self.pdf_css_file:
-                self.pdf_css_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t")
-                extra_css = tinycss2.parse_stylesheet(self.pdf_css.substitute(title=self.report_title, **self.css_params))
-                for rule in base_css + extra_css:
-                    self.pdf_css_file.write(rule.serialize())
-                self.pdf_css_file.flush()
-            esparto.options.esparto_css = self.pdf_css_file.name
-
         agency_dir = self.nbpath / f"reports/{self.agency}"
         agency_dir.mkdir(parents=True, exist_ok=True)
 
@@ -397,3 +397,15 @@ class KQL:
         """
         df = df.copy(deep=True)
         return df[df[col] >= (df[col].max() - pandas.to_timedelta(timespan))].reset_index()
+
+    def hash256(obj, truncate: int = 16):
+        return hashlib.sha256(pickle.dumps(obj)).hexdigest()[:truncate]
+
+    def hash_columns(dataframe: pandas.DataFrame, columns: list):
+        if not isinstance(columns, list):
+            columns = [columns]
+        for column in columns:
+            dataframe[column] = dataframe[column].apply(KQL.hash256)
+
+    def show(self, section: str):
+        return display.HTML(self.report[section].to_html(notebook_mode=True))
