@@ -1,5 +1,5 @@
 SecurityIncident
-| summarize arg_max(TimeGenerated,Title,Tactics=tostring(AdditionalData.tactics),Severity,Status,Classification,ClosedTime,CreatedTime,FirstModifiedTime) by IncidentNumber
+| summarize arg_max(TimeGenerated,Rule=Title,Tactics=tostring(AdditionalData.tactics),Severity,Status,Classification,ClosedTime,CreatedTime,FirstModifiedTime) by IncidentNumber
 | extend Tactics = case(Tactics == "[]", pack_array("Unknown"), Tactics)
 | mv-expand todynamic(Tactics)
 | extend OpenHours = (iif(isnull(ClosedTime), now(), ClosedTime) - CreatedTime)/1h

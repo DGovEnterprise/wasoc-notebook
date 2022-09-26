@@ -132,6 +132,9 @@ class KQL:
     a {
         color: $links;
     }
+    .table {
+        font-size: 0.8em;
+    }
     @page {
         size: A4 portrait;
         font-family: $font;
@@ -154,7 +157,7 @@ class KQL:
 
     sns = seaborn
 
-    def __init__(self, path: Union[Path, AnyPath], template: str, queries: dict = {}, subfolder: str = "notebooks", timespan: str = "P30D"):
+    def __init__(self, path: Union[Path, AnyPath], template: str = "", subfolder: str = "notebooks", timespan: str = "P30D"):
         """
         Convenience tooling for loading pandas dataframes using context from a path.
         path is expected to be pathlib type object with a structure like below:
@@ -183,9 +186,9 @@ class KQL:
         else:
             self.sentinelworkspaces = KQL.list_workspaces()
         self.today = pandas.Timestamp("today")
-        self.load_templates(mdpath=template)
+        if template:
+            self.load_templates(mdpath=template)
         azcli(["extension", "add", "-n", "log-analytics", "-y"])
-        self.load_queries(queries=queries)
 
     def set_agency(self, agency: str, sample_agency: str = "", sample_only: bool = False):
         # if sample_only = True, build report with only mock data
@@ -203,38 +206,37 @@ class KQL:
             self.sampleworkspaces = False
         return self
 
-    def load_queries(self, queries: dict):
+    def load_queries(self, queries: dict({str: str})):
         """
         load a bunch of kql into dataframes
         """
         querystats = {}
-        if queries:
-            with ThreadPoolExecutor() as executor:
-                print(
-                    f"Running {len(queries.keys())} queries across {self.agency_name}: {len(self.sentinelworkspaces)} workspaces (sample: {self.sample_agency}): "
-                )
-                for key, kql in queries.items():
-                    if self.sample_only:
-                        # force return no results to fallback to sample data
-                        query = (self.kql / kql).open().read()
-                        table = query.split("\n")[0].split(" ")[0].strip()
-                        queries[key] = pandas.DataFrame([{f"{table}": f"No Data in timespan {self.timespan}"}])
-                    else:
-                        queries[key] = executor.submit(self.kql2df, kql)
-                wait([f for f in queries.values() if isinstance(f, Future)])
-                queries.update({key: f.result() for key, f in queries.items() if isinstance(f, Future)})
-                for key, df in queries.items():
-                    if df.count().max() == 1 and df.iloc[0, 0].startswith("No Data"):
-                        querystats[key] = [0, f"{df.columns[0]} - {df.iloc[0,0]}"]
-                        if self.sampleworkspaces:
-                            queries[key] = executor.submit(self.kql2df, kql, workspaces=self.sampleworkspaces)
-                    else:
-                        querystats[key] = [df.count().max(), len(df.columns)]
-                wait([f for f in queries.values() if isinstance(f, Future)])
-                queries.update({key: f.result() for key, f in queries.items() if isinstance(f, Future)})
-                self.queries = queries
-        if querystats:
-            self.querystats = pandas.DataFrame(querystats).T.rename(columns={0: "Rows", 1: "Columns"}).sort_values("Rows")
+        with ThreadPoolExecutor() as executor:
+            print(
+                f"Running {len(queries.keys())} queries across {self.agency_name}: {len(self.sentinelworkspaces)} workspaces (sample: {self.sample_agency}): "
+            )
+            for key, kql in queries.items():
+                if self.sample_only:
+                    # force return no results to fallback to sample data
+                    query = (self.kql / kql).open().read()
+                    table = query.split("\n")[0].split(" ")[0].strip()
+                    queries[key] = (kql, pandas.DataFrame([{f"{table}": f"No Data in timespan {self.timespan}"}]))
+                else:
+                    queries[key] = (kql, executor.submit(self.kql2df, kql))
+            wait([f for kql, f in queries.values() if isinstance(f, Future)])
+            queries.update({key: (f[0], f[1].result()) for key, f in queries.items() if isinstance(f[1], Future)})
+            for key, df in queries.items():
+                kql, df = df
+                if df.count().max() == 1 and df.iloc[0, 0].startswith("No Data"):
+                    querystats[key] = [0, f"{df.columns[0]} - {df.iloc[0,0]}"]
+                    if self.sampleworkspaces:
+                        queries[key] = (kql, executor.submit(self.kql2df, kql, workspaces=self.sampleworkspaces))
+                else:
+                    querystats[key] = [df.count().max(), len(df.columns)]
+            wait([f for kql, f in queries.values() if isinstance(f, Future)])
+            queries.update({key: (f[0], f[1].result()) for key, f in queries.items() if isinstance(f[1], Future)})
+            self.queries = queries
+        self.querystats = pandas.DataFrame(querystats).T.rename(columns={0: "Rows", 1: "Columns"}).sort_values("Rows")
 
     def load_templates(self, mdpath: str):
         """
@@ -278,7 +280,8 @@ class KQL:
         agency_dir.mkdir(parents=True, exist_ok=True)
 
         self.pdf_file = agency_dir / f"{self.report_title.replace(' ','')}-{self.today.strftime('%b%Y')}.pdf"
-        self.report.save_pdf(self.pdf_file)
+        html = self.report.save_pdf(self.pdf_file, return_html=True)
+        self.pdf_file.with_suffix(".html").open("w+t").write(html)
         if preview:
             return display.IFrame(self.pdf_file, width=1200, height=800)
         else:
@@ -375,43 +378,22 @@ class KQL:
             table = query.split("\n")[0].split(" ")[0].strip()
             return pandas.DataFrame([{f"{table}": f"No Data in timespan {timespan}"}])
 
-    def df2fig(dataframe, title, x, y, split, maxsplit=10, kind="area", quantile=0.9, yclip=10, agg="sum"):
+    def label_size(dataframe: pandas.DataFrame, category: str, metric: str, max_categories=9, quantile=0.5, max_scale=10, agg="sum", field="oversized"):
         """
-        Given a dataframe, draws an area plot from an x column, numeric y column and a split grouping.
-        This attempts to split the dataframe if needed using the grouping based on a quantile analysis to produce
-        sensibly sized charts.
-
-        It also groups all 'tiny' groups into an other category to keep legend sizes sane.
+        Annotates a dataframe based on quantile and category sizes, then groups small categories into other
         """
         df = dataframe.copy(deep=True)
-        splitsizes = df.groupby(split).sum(numeric_only=True).sort_values(y, ascending=False)
-        df[split] = df[split].replace({label: "Other" for label in splitsizes[maxsplit:].index})
-        upper = splitsizes[y].quantile(quantile)
-        yspread = splitsizes[y].max() / upper
-        dfs = {title: df}
-        if yspread > yclip:
-            splits = splitsizes[y] > upper
-            uppersplit, lowersplit = set(splits[splits == True].index), set(splits[splits == False].index)
-            if len(lowersplit) > 0:
-                dfs = {title: df[df[split].isin(lowersplit)], f"{title} (Outliers > {quantile})": df[df[split].isin(uppersplit)]}
-        figures = []
-        for title, df in dfs.items():
-            if df.empty:
-                continue
-            df = df.groupby([x, split])[y].agg(agg).unstack()
-            df = df[df.sum(numeric_only=True).sort_values(ascending=False).index]
-            ax = df.plot(kind=kind, title=title)
-            handles, labels = ax.get_legend_handles_labels()
-            ax.legend(reversed(handles), reversed(labels), title=split)
-            figures.append(ax.figure)
-        figures.reverse()
-        return figures
+        sizes = df.groupby(category)[metric].agg(agg).sort_values(ascending=False)
+        maxmetric = sizes.quantile(quantile) * max_scale
+        normal, oversized = sizes[sizes <= maxmetric], sizes[sizes > maxmetric]
+        df["oversized"] = df[category].isin(oversized.index)
+        for others in (normal[max_categories:], oversized[max_categories:]):
+            df[category] = df[category].replace({label: f"{others.count()} Others" for label in others.index})
+        return df
 
-    def minitable(df):
-        html = df.to_html(classes=["table", "table-hover", "small"])
-        html = f"<div class='table-responsive es-table'><small><small>{html}</small></small></div>"
-        return html
-
-    def dfago(df, timespan, col="TimeGenerated"):
+    def latest_data(df: pandas.DataFrame, timespan: str, col="TimeGenerated"):
+        """
+        Return dataframe filtered by timespan
+        """
         df = df.copy(deep=True)
         return df[df[col] >= (df[col].max() - pandas.to_timedelta(timespan))].reset_index()

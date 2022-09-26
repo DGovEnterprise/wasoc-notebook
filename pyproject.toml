@@ -7,7 +7,7 @@ license = "Apache License 2.0"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.10,<3.12"
 pandas = "^1.5.0"
 esparto = "^4.1.0"
 weasyprint = "^56.1"
@@ -21,6 +21,7 @@ pip = "^22.2.2"
 pathvalidate = "^2.5.2"
 seaborn = "^0.12.0"
 jupyterlab = "^3.4.7"
+scipy = "^1.9.1"
 
 [tool.poetry.dev-dependencies]
 

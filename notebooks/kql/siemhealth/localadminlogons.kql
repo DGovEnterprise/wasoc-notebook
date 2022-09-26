@@ -5,5 +5,5 @@ DeviceLogonEvents
     | summarize arg_max(TimeGenerated, *) by DeviceName
     | project DeviceName
 ) on DeviceName
-| summarize dcount(DeviceName) by AccountName
-| order by dcount_DeviceName
+| summarize Devices = dcount(DeviceName) by AccountName
+| order by Devices
