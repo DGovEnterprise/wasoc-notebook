@@ -1,0 +1,11 @@
+SigninLogs
+| union AADNonInteractiveUserSignInLogs
+| where TimeGenerated > ago(30d)
+| where ResultType == 0
+| where ClientAppUsed in ("Exchange ActiveSync", "Exchange Web Services", "AutoDiscover", "Unknown", "POP3", "IMAP4", "Other clients", "Authenticated SMTP", "MAPI Over HTTP", "Offline Address Book")
+| summarize
+    Logins = count(),
+    UserCount = dcount(UserPrincipalName),
+    Users = strcat_array(array_slice(array_sort_asc(make_set(UserPrincipalName)), 0, 5), ", ")
+    by ClientAppUsed
+| sort by UserCount desc

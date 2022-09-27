@@ -1,0 +1,9 @@
+SecurityEvent
+| where EventID == "4624"
+| where LogonType == 10
+| extend user=tolower(Account)
+| summarize
+    device_count=dcount(Computer),
+    devices=array_strcat(array_sort_asc(make_set(Computer)), ", ")
+    by user
+| sort by device_count desc 

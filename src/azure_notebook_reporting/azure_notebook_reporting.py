@@ -99,6 +99,8 @@ class KQL:
     | where count_ > 0
     """
 
+    base_css = tinycss2.parse_stylesheet(open(esparto.options.esparto_css).read())
+
     pdf_css = Template(
         """
     @media print {
@@ -114,11 +116,18 @@ class KQL:
         .es-card {
             page-break-inside: avoid;
         }
+        .es-section-title {
+            page-break-before: always;
+        }
+        #contents-title {
+            page-break-before: avoid !important;
+        }
         .es-column-body, 
         .es-card, 
         .es-card-body {
             flex: 1 !important;
             page-break-inside: avoid;
+            margin-bottom: 0.1em !important;
         }
     }
     html > body {
@@ -133,7 +142,7 @@ class KQL:
         color: $links;
     }
     .table {
-        font-size: 0.7em;
+        font-size: 0.8em;
     }
     @page {
         size: A4 portrait;
@@ -259,21 +268,23 @@ class KQL:
             context="paper",
             font=font,
             font_scale=0.7,
-            rc={"figure.figsize": (7, 4), "figure.constrained_layout.use": True, "legend.loc": "upper right"},
+            rc={"figure.figsize": (6.7, 3.5), "figure.constrained_layout.use": True, "legend.loc": "upper right"},
         )
         pandas.set_option("display.max_colwidth", None)
         self.css_params = kwargs
-        base_css = tinycss2.parse_stylesheet(open(esparto.options.esparto_css).read())
-        base_css = [r for r in base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
-        if not self.pdf_css_file:
-            self.pdf_css_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t")
-            extra_css = tinycss2.parse_stylesheet(self.pdf_css.substitute(title=self.report_title, **self.css_params))
-            for rule in base_css + extra_css:
-                self.pdf_css_file.write(rule.serialize())
-            self.pdf_css_file.flush()
+        
+        base_css = [r for r in self.base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
+
+        self.pdf_css_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t", suffix=".css")
+        extra_css = tinycss2.parse_stylesheet(self.pdf_css.substitute(title=self.report_title, **self.css_params))
+        for rule in base_css + extra_css:
+            self.pdf_css_file.write(rule.serialize())
+        self.pdf_css_file.flush()
         self.report = esparto.Page(title=self.report_title, table_of_contents=table_of_contents, output_options=esparto.OutputOptions(
             esparto_css = self.pdf_css_file.name
         ))
+        # css not appearing to be utilised correctly, fallback global set
+        esparto.options.esparto_css = self.pdf_css_file.name
 
     def report_pdf(self, preview=True):
         agency_dir = self.nbpath / f"reports/{self.agency}"

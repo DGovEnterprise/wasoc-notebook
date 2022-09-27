@@ -32,6 +32,10 @@ The below charts provide an overview of incidents created either manually or bas
 
 The below chart is a summary of logon methods for the $users unique users seen logging in over the past 30 days.
 
+If there are is any Legacy Authentication usage, please review and the guidance from Microsoft to [Block legacy authentication with Azure AD with Conditional Access](https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/block-legacy-authentication).
+
+This report also includes a summary of [Powershell](https://learn.microsoft.com/en-us/powershell/azure/active-directory/overview?view=azureadps-2.0) and [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/what-is-azure-cli) usage, this should correlate with internal records of admin users (its highly unlikely that a normal user would be using these tools).
+
 ---
 
 ## Email Delivery
@@ -42,7 +46,20 @@ The below charts summarise email flows and delivery actions for the past 30 days
 
 ## On Premise Logins
 
-The below charts provide a summary of logon methods and devices for on-premise logins. The $accounts should be similar to the total user account in [Users and Azure AD Logins](#users_and_azure_ad_logins-title), a significant discrepancy could indicate a coverage issue.
+The below charts provide a summary of logon methods and devices ($devices seen in past 30 days) for on-premise logins against Domain Controllers ($dcs seen in past 30 days). The $accounts users should be similar to the total user account in [Users and Azure AD Logins](#users_and_azure_ad_logins-title), a significant discrepancy could indicate a coverage issue or a significant proportion of devices in [cloud configuration](https://learn.microsoft.com/en-AU/mem/intune/fundamentals/cloud-configuration).
+
+Note that any **Ntlm** or **LDAP cleartext** items are of concern, please refer to the below guidance to address:
+
+- [Restrict Incoming NTLM traffic](https://learn.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/network-security-restrict-ntlm-incoming-ntlm-traffic)
+- [Require LDAP server signing](https://learn.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/domain-controller-ldap-server-signing-requirements)
+
+The **RDP Usage** section has been included to indicate any users accessing more than one device over RDP in the past 30 days, and is derived from the [Windows security event sets](https://learn.microsoft.com/en-us/azure/sentinel/windows-security-event-id-reference) that Sentinel ingests - it is recommended to keep this setting on **Common** (if needed to minimise ingestions costs) or **All Events**.
+
+---
+
+## Operating Systems
+
+The below charts summarise operating system platforms seen in the past 30 days. Based on endpoints reporting to Microsoft Defender for Endpoint, there are a total of $devs active devices, with $asr having [Attack surface reduction (ASR) rules](https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/attack-surface-reduction-rules-deployment?view=o365-worldwide) actively reporting within the last 30 days. If there is a significant discrepancy between this count and [On Premise Logins](#on_premise_logins-title) and devices are largely not [cloud configured](https://learn.microsoft.com/en-AU/mem/intune/fundamentals/cloud-configuration) this is worth further investigation (connectors may be missing or devices may not be [onboarded](https://learn.microsoft.com/en-us/mem/intune/protect/advanced-threat-protection-configure#enable-microsoft-defender-for-endpoint-in-intune) properly).
 
 ---
 
@@ -67,7 +84,6 @@ Once you have identified the high cost items, you can reduce the events generate
 - [Ingestion time transformations](https://docs.microsoft.com/en-us/azure/azure-monitor/logs/ingestion-time-transformations) - should be used to eliminate low value logs before they are persisted within Log Analytics & Sentinel
 - [Basic Logs](https://docs.microsoft.com/en-us/azure/azure-monitor/logs/basic-logs-configure?tabs=cli-1%2Cportal-1) - should be used for high volume tables that aren't queried regularly (approx 1/4 cost per GB ingested)
 
-The below chart shows your ingestion usage by table over the past week.
-Typically your ingestion should be under 30MB per licensed user in your tenant (5MB of that is included for free under the [Microsoft Sentinel benefit for Microsoft 365 E5, A5, F5, and G5 customers](https://azure.microsoft.com/en-us/offers/sentinel-microsoft-365-offer/)).
+The below chart shows your ingestion usage by table over the past week. A tenant with $licences users could be expected to have daily ingestion up to $high_gb GB. Note that $entitled_gb GB would included for free for a tenant of this size under the [Microsoft Sentinel benefit for Microsoft 365 E5, A5, F5, and G5 customers](https://azure.microsoft.com/en-us/offers/sentinel-microsoft-365-offer/)).
 
-### Ingestion statistics by Table over past month
+### Ingestion statistics by Table over past month ($daily GB per day, $total GB over 30 days)

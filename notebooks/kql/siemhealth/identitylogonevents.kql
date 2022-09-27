@@ -1,3 +1,7 @@
 IdentityLogonEvents
-| summarize users = dcount(AccountUpn), devices = dcount(DeviceName), dcs = make_set(DestinationDeviceName) by logontype = strcat(LogonType, ": ", Protocol)
+| summarize
+    users = dcount(AccountUpn),
+    devices = dcount(DeviceName),
+    dcs = array_strcat(array_sort_asc(make_set(DestinationDeviceName)), ", ")
+    by logontype = strcat(LogonType, ": ", Protocol)
 | order by users

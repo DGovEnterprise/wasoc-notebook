@@ -1,0 +1,18 @@
+SigninLogs
+| where AppDisplayName contains "PowerShell"
+    or UserAgent contains "PowerShell"
+    or AppDisplayName contains "Azure CLI"
+| project
+    TimeGenerated,
+    AppDisplayName,
+    UserPrincipalName,
+    IPAddress,
+    Location = tostring(strcat(LocationDetails["state"], ", ", LocationDetails["countryOrRegion"])),
+    UserAgent
+| summarize
+    Signins = count(),
+    UserCount = dcount(UserPrincipalName),
+    IPCount = dcount(IPAddress),
+    Users = strcat_array(array_sort_asc(make_set(strcat(UserPrincipalName))), ", ")
+    by AppDisplayName, Location
+| order by Signins desc
