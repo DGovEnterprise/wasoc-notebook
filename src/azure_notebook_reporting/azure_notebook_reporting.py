@@ -291,7 +291,7 @@ class KQL:
         esparto.options.esparto_css = self.pdf_css_file.name
         return self.report
 
-    def report_pdf(self, preview=True, folders=True):
+    def report_pdf(self, preview=True, folders=True, savehtml=False):
         if folders:
             report_dir = self.reports / self.agency
         else:
@@ -299,14 +299,18 @@ class KQL:
         report_dir.mkdir(parents=True, exist_ok=True)
 
         self.pdf_file = report_dir / f"{self.report_title.replace(' ','')}-{self.agency}-{self.today.strftime('%b%Y')}.pdf"
-        html = self.report.save_pdf(self.pdf_file, return_html=True)
-        self.pdf_file.with_suffix(".html").open("w+t").write(html)
+        self.html = self.report.save_pdf(self.pdf_file, return_html=True)
+        if savehtml:
+            self.pdf_file.with_suffix(".html").open("w+t").write(self.html)
 
         self.excel_file = report_dir / f"{self.report_title.replace(' ','')}-{self.agency}-{self.today.strftime('%b%Y')}.xlsx"
         dfs = {}
         dfs["Query Stats"] = self.querystats
         for name, data in self.queries.items():
-            dfs[name] = data[1]
+            if self.querystats["Rows"][name] == 0:
+                dfs[name] = pandas.DataFrame([self.querystats.loc[name]])
+            else:
+                dfs[name] = data[1]
         with pandas.ExcelWriter(self.excel_file) as writer:
             for name, df in dfs.items():
                 date_columns = df.select_dtypes(include=["datetimetz"]).columns
