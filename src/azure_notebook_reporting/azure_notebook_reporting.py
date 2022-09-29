@@ -229,23 +229,25 @@ class KQL:
                     # force return no results to fallback to sample data
                     query = (self.kql / kql).open().read()
                     table = query.split("\n")[0].split(" ")[0].strip()
-                    queries[key] = (kql, pandas.DataFrame([{f"{table}": f"No Data in timespan {self.timespan}"}]))
+                    df = pandas.DataFrame([{f"{table}": f"No Data in timespan {self.timespan}"}])
+                    queries[key] = (kql, df)
+                    querystats[key] = [0, f"{df.columns[0]} - {df.iloc[0,0]}", kql]
                 else:
                     queries[key] = (kql, executor.submit(self.kql2df, kql))
             wait([f for kql, f in queries.values() if isinstance(f, Future)])
             queries.update({key: (f[0], f[1].result()) for key, f in queries.items() if isinstance(f[1], Future)})
             for key, df in queries.items():
                 kql, df = df
-                if df.count().max() == 1 and df.iloc[0, 0].startswith("No Data"):
-                    querystats[key] = [0, f"{df.columns[0]} - {df.iloc[0,0]}"]
+                if df.shape == (1, 1) and df.iloc[0, 0].startswith("No Data"):
+                    querystats[key] = [0, f"{df.columns[0]} - {df.iloc[0,0]}", kql]
                     if self.sampleworkspaces:
                         queries[key] = (kql, executor.submit(self.kql2df, kql, workspaces=self.sampleworkspaces))
                 else:
-                    querystats[key] = [df.count().max(), len(df.columns)]
+                    querystats[key] = [df.count().max(), len(df.columns), kql]
             wait([f for kql, f in queries.values() if isinstance(f, Future)])
             queries.update({key: (f[0], f[1].result()) for key, f in queries.items() if isinstance(f[1], Future)})
             self.queries = queries
-        self.querystats = pandas.DataFrame(querystats).T.rename(columns={0: "Rows", 1: "Columns"}).sort_values("Rows")
+        self.querystats = pandas.DataFrame(querystats).T.rename(columns={0: "Rows", 1: "Columns", 2: "KQL"}).sort_values("Rows")
 
     def load_templates(self, mdpath: str):
         """
@@ -261,6 +263,8 @@ class KQL:
         self.report_sections = {title.replace("## ", ""): Template(content) for title, content in md_tmpls[1:]}
 
     def init_report(self, font="arial", table_of_contents=True, **kwargs):
+        if len(self.sentinelworkspaces) == 0:
+            raise Exception("No workspaces to query, report generation failed.")
         # Return an esparto page for reporting after customising css and style seaborn / matplotlib
         kwargs["font"] = font
         self.sns.set_theme(
@@ -272,7 +276,7 @@ class KQL:
         )
         pandas.set_option("display.max_colwidth", None)
         self.css_params = kwargs
-        
+
         base_css = [r for r in self.base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
 
         self.pdf_css_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t", suffix=".css")
@@ -280,19 +284,36 @@ class KQL:
         for rule in base_css + extra_css:
             self.pdf_css_file.write(rule.serialize())
         self.pdf_css_file.flush()
-        self.report = esparto.Page(title=self.report_title, table_of_contents=table_of_contents, output_options=esparto.OutputOptions(
-            esparto_css = self.pdf_css_file.name
-        ))
+        self.report = esparto.Page(
+            title=self.report_title, table_of_contents=table_of_contents, output_options=esparto.OutputOptions(esparto_css=self.pdf_css_file.name)
+        )
         # css not appearing to be utilised correctly, fallback global set
         esparto.options.esparto_css = self.pdf_css_file.name
+        return self.report
 
-    def report_pdf(self, preview=True):
-        agency_dir = self.nbpath / f"reports/{self.agency}"
-        agency_dir.mkdir(parents=True, exist_ok=True)
+    def report_pdf(self, preview=True, folders=True):
+        if folders:
+            report_dir = self.reports / self.agency
+        else:
+            report_dir = self.reports
+        report_dir.mkdir(parents=True, exist_ok=True)
 
-        self.pdf_file = agency_dir / f"{self.report_title.replace(' ','')}-{self.today.strftime('%b%Y')}.pdf"
+        self.pdf_file = report_dir / f"{self.report_title.replace(' ','')}-{self.agency}-{self.today.strftime('%b%Y')}.pdf"
         html = self.report.save_pdf(self.pdf_file, return_html=True)
         self.pdf_file.with_suffix(".html").open("w+t").write(html)
+
+        self.excel_file = report_dir / f"{self.report_title.replace(' ','')}-{self.agency}-{self.today.strftime('%b%Y')}.xlsx"
+        dfs = {}
+        dfs["Query Stats"] = self.querystats
+        for name, data in self.queries.items():
+            dfs[name] = data[1]
+        with pandas.ExcelWriter(self.excel_file) as writer:
+            for name, df in dfs.items():
+                date_columns = df.select_dtypes(include=["datetimetz"]).columns
+                for date_column in date_columns:
+                    df[date_column] = df[date_column].dt.tz_localize(None)
+                df = df.drop("TableName", axis=1, errors="ignore")
+                df.to_excel(writer, sheet_name=name)
         if preview:
             return display.IFrame(self.pdf_file, width=1200, height=800)
         else:
