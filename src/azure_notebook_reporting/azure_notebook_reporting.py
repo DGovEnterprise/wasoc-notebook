@@ -140,6 +140,7 @@ class KQL:
     }
     a {
         color: $links;
+        font-weight: bold;
     }
     .table {
         font-size: 0.8em;
@@ -148,6 +149,7 @@ class KQL:
         size: A4 portrait;
         font-family: $font;
         margin: 1.5cm 1cm;
+        margin-top: 2cm;
         @bottom-right {
             font-size: 0.6em;
             line-height: 1.5em;
@@ -158,7 +160,7 @@ class KQL:
             white-space: pre;
         }
         background: url("$background");
-        background-position: -1cm -1.5cm;
+        background-position: top -2cm left -1cm;
         background-size: 210mm 297mm;
     }
     """
@@ -262,24 +264,29 @@ class KQL:
         self.report_title = md_tmpls[0][0].replace("# ", "")
         self.report_sections = {title.replace("## ", ""): Template(content) for title, content in md_tmpls[1:]}
 
-    def init_report(self, font="arial", table_of_contents=True, **kwargs):
+    def init_report(self, font=["Arial"], table_of_contents=True, **kwargs):
         if len(self.sentinelworkspaces) == 0:
             raise Exception("No workspaces to query, report generation failed.")
         # Return an esparto page for reporting after customising css and style seaborn / matplotlib
-        kwargs["font"] = font
         self.sns.set_theme(
             style="darkgrid",
             context="paper",
             font=font,
             font_scale=0.7,
-            rc={"figure.figsize": (6.7, 3.5), "figure.constrained_layout.use": True, "legend.loc": "upper right"},
+            rc={"figure.figsize": (7, 3), "figure.constrained_layout.use": True, "legend.loc": "upper right"},
         )
         pandas.set_option("display.max_colwidth", None)
+        kwargs["font"] = ", ".join([f'"{f}"' for f in font])
         self.css_params = kwargs
 
         base_css = [r for r in self.base_css if not hasattr(r, "at_keyword")]  # strip media/print styles so we can replace
 
         self.pdf_css_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t", suffix=".css")
+        bg = self.css_params["background"]
+        self.background_file = tempfile.NamedTemporaryFile(delete=False, mode="w+b", suffix=bg.suffix)
+        self.background_file.write(bg.open("r+b").read())
+        self.background_file.flush()
+        self.css_params["background"] = f"file://{self.background_file.name}"
         extra_css = tinycss2.parse_stylesheet(self.pdf_css.substitute(title=self.report_title, **self.css_params))
         for rule in base_css + extra_css:
             self.pdf_css_file.write(rule.serialize())
